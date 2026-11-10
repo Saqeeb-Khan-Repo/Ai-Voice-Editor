@@ -99,16 +99,16 @@ class AudioEnhancementPipeline:
         if initial_analysis is None or start_sec > 0.0 or end_sec is not None:
             initial_analysis = AudioAnalyzer.analyze(audio, sample_rate)
 
-        # Stage 3: Noise Reduction (Spectral Gating + Downward Noise Gate)
-        update_progress("denoising", 18)
-        audio, meta_nr = self.stage_nr.process(audio, sample_rate, config)
-
-        # Stage 4: High-Pass Filtering
-        update_progress("filtering", 26)
+        # Stage 3: High-Pass Filtering (Removes DC offset & subsonic rumble before noise estimation)
+        update_progress("filtering", 18)
         audio, meta_hp = self.stage_hp.process(audio, sample_rate, config)
 
-        # Stage 5: Equalization
-        update_progress("equalizing", 34)
+        # Stage 4: Complete AI Noise Reduction (Spectral Gating + Downward Voice Expander)
+        update_progress("denoising", 28)
+        audio, meta_nr = self.stage_nr.process(audio, sample_rate, config)
+
+        # Stage 5: Equalization (Anti-boxiness scoop, presence clarity & silky air)
+        update_progress("equalizing", 36)
         audio, meta_eq = self.stage_eq.process(audio, sample_rate, config)
 
         # Stage 6: Auto-Tune Pitch Correction

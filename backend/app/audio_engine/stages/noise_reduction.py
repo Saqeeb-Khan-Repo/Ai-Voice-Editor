@@ -152,21 +152,21 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
 
         # 2. Over-subtraction and Spectral Floor Tuning
         if mode == "maximum":
-            alpha = 2.0 + (strength * 2.8)
-            beta = max(0.0005, (1.0 - strength) * 0.02)
+            alpha = 2.4 + (strength * 3.0)
+            beta = max(0.00005, (1.0 - strength) * 0.004)
         elif mode == "aggressive":
-            alpha = 1.6 + (strength * 2.4)
-            beta = max(0.001, (1.0 - strength) * 0.03)
+            alpha = 2.0 + (strength * 2.6)
+            beta = max(0.0001, (1.0 - strength) * 0.008)
         elif mode == "subtle":
-            alpha = 1.0 + (strength * 1.5)
-            beta = max(0.01, (1.0 - strength) * 0.08)
+            alpha = 1.1 + (strength * 1.5)
+            beta = max(0.005, (1.0 - strength) * 0.05)
         else:  # balanced
-            alpha = 1.4 + (strength * 2.2)
-            beta = max(0.002, (1.0 - strength) * 0.04)
+            alpha = 1.8 + (strength * 2.4)
+            beta = max(0.0002, (1.0 - strength) * 0.01)
 
         # 3. Soft-Knee Spectral Gain Mask
         snr_est = np.maximum(mag / (noise_profile + 1e-10), 1e-6)
-        gain_mask = np.maximum(1.0 - (alpha / (snr_est + 1.1)), beta)
+        gain_mask = np.maximum(1.0 - (alpha / (snr_est + 1.05)), beta)
 
         # 4. Two-Dimensional Smoothing (Time x Frequency)
         # Prevents watery musical chirping while keeping consonants crisp
@@ -210,17 +210,17 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
 
                 # Mode-dependent threshold & floor
                 if mode in ("maximum", "aggressive"):
-                    gate_thresh = -44.0 + (strength * 12.0)
-                    gate_floor = max(0.001, (1.0 - strength) * 0.008)
-                    knee_width = 10.0
+                    gate_thresh = -42.0 + (strength * 12.0)
+                    gate_floor = max(0.00005, (1.0 - strength) * 0.001)
+                    knee_width = 11.0
                 elif mode == "subtle":
-                    gate_thresh = -50.0 + (strength * 8.0)
-                    gate_floor = max(0.02, (1.0 - strength) * 0.08)
-                    knee_width = 16.0
+                    gate_thresh = -48.0 + (strength * 8.0)
+                    gate_floor = max(0.001, (1.0 - strength) * 0.02)
+                    knee_width = 15.0
                 else:  # balanced (default for vocal studio)
-                    gate_thresh = -46.0 + (strength * 10.0)
-                    gate_floor = max(0.005, (1.0 - strength) * 0.03)
-                    knee_width = 14.0
+                    gate_thresh = -44.0 + (strength * 10.0)
+                    gate_floor = max(0.0001, (1.0 - strength) * 0.003)
+                    knee_width = 12.0
 
                 raw_gain = np.ones(n_frames, dtype=np.float32)
                 below_mask = env_db < gate_thresh

@@ -50,26 +50,26 @@ class EnhancementDecisionEngine:
                 "noise_strength": 0.40,
             },
             "studio_naat": {
-                "base_reverb_wet": 0.14,
-                "base_reverb_decay": 1.4,
-                "echo_enabled": False,
-                "echo_wet": 0.0,
+                "base_reverb_wet": 0.18,
+                "base_reverb_decay": 1.8,
+                "echo_enabled": True,
+                "echo_wet": 0.14,
                 "echo_delay_ms": 240.0,
-                "echo_feedback": 0.20,
+                "echo_feedback": 0.24,
                 "autotune_enabled": False,  # Strictly preserve natural reciter pitch, Tajweed & emotion
                 "autotune_strength": 0.0,
                 "autotune_scale": "chromatic",
                 "tube_enabled": True,
-                "tube_warmth": 0.22,
-                "doubler_enabled": False,
-                "doubler_mix": 0.0,
-                "doubler_width": 0.7,
+                "tube_warmth": 0.30,
+                "doubler_enabled": True,
+                "doubler_mix": 0.12,
+                "doubler_width": 0.8,
                 "target_lufs": -14.0,  # Studio broadcast loudness
-                "comp_ratio": 2.2,     # Transparent optical vocal leveling
-                "comp_attack_ms": 25.0,
-                "comp_release_ms": 180.0,
-                "air_boost_db": 2.0,
-                "noise_strength": 0.65,
+                "comp_ratio": 2.4,     # Transparent optical vocal leveling
+                "comp_attack_ms": 20.0,
+                "comp_release_ms": 160.0,
+                "air_boost_db": 3.5,
+                "noise_strength": 0.80, # Complete noise elimination
             },
             "spacious_naat": {
                 "base_reverb_wet": 0.22,
@@ -208,15 +208,19 @@ class EnhancementDecisionEngine:
         active_preset = preset if preset in preset_configs else "studio_naat"
         base = preset_configs[active_preset]
 
-        # 1. Noise Reduction Decision (Advanced Spectral Subtraction + Downward Noise Gate)
+        # 1. Noise Reduction Decision (Advanced Spectral Subtraction + Downward Voice Expander)
         nr_enabled = True
-        nr_mode = "aggressive" if problems.get("has_high_noise_floor", False) else "balanced"
-        if est_snr is not None and est_snr > 38.0 and not problems.get("has_high_noise_floor", False):
-            nr_strength = 0.35
+        if problems.get("has_high_noise_floor", False) or (est_snr is not None and est_snr < 32.0):
+            nr_strength = max(0.85, base["noise_strength"])
+            nr_mode = "maximum"
+            nr_decision = f"Complete studio noise elimination engaged (strength {nr_strength:.2f}, mode: maximum): Silences room hiss, computer hum, and background acoustics down to studio black level."
+        elif est_snr is not None and est_snr > 38.0 and not problems.get("has_high_noise_floor", False):
+            nr_strength = 0.40
             nr_mode = "subtle"
-            nr_decision = f"Subtle noise reduction engaged (strength 0.35): Recording has clean SNR ({est_snr:.1f} dB)."
+            nr_decision = f"Subtle noise reduction engaged (strength 0.40): Recording has clean SNR ({est_snr:.1f} dB)."
         else:
-            nr_strength = max(0.65, base["noise_strength"])
+            nr_strength = max(0.75, base["noise_strength"])
+            nr_mode = "aggressive" if base.get("noise_strength", 0.6) > 0.7 else "balanced"
             nr_decision = f"Studio background noise elimination engaged (strength {nr_strength:.2f}, mode: {nr_mode}): Clears pre-amp hiss and room fan hum with downward noise expander."
 
         # 2. High-Pass Filter Decision
@@ -224,13 +228,13 @@ class EnhancementDecisionEngine:
             hp_cutoff_hz = 80.0
             hp_decision = "High-pass filter engaged at 80 Hz: Sub-bass rumble and handling noise eliminated."
         else:
-            hp_cutoff_hz = 65.0
-            hp_decision = "Gentle high-pass filter engaged at 65 Hz: Clears subsonic thumps while preserving chest warmth."
+            hp_cutoff_hz = 72.0
+            hp_decision = "Gentle high-pass filter engaged at 72 Hz: Clears subsonic thumps while preserving chest warmth."
 
         # 3. Parametric Equalization Decision
-        eq_mud_gain_db = -2.5 if problems.get("has_boxiness_mud", False) else -1.5
+        eq_mud_gain_db = -3.2 if problems.get("has_boxiness_mud", False) else -2.2
         eq_mud_freq_hz = 320.0
-        eq_presence_gain_db = 2.0
+        eq_presence_gain_db = 3.2
         eq_air_gain_db = base["air_boost_db"]
         eq_decision = (
             f"Studio EQ: {eq_mud_gain_db:+.1f} dB mud reduction @ 320 Hz, "
