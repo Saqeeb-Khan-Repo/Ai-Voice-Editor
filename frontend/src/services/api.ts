@@ -237,6 +237,12 @@ export function getOutputStreamUrl(outputId: string): string {
   return `${API_BASE}/outputs/${outputId}/stream`;
 }
 
-export function getOutputDownloadUrl(outputId: string): string {
+export function getOutputDownloadUrl(
+  outputId: string,
+  format?: "wav_24" | "wav_16" | "mp3_320" | string
+): string {
+  if (format) {
+    return `${API_BASE}/outputs/${outputId}/download?format=${format}`;
+  }
   return `${API_BASE}/outputs/${outputId}/download`;
 }

@@ -23,6 +23,8 @@ interface EnhancementSettingsProps {
   preset: string;
   onPresetChange: (preset: string) => void;
   overrides: {
+    noise_reduction_enabled?: boolean;
+    noise_reduction_mode?: string;
     noise_reduction_strength: number;
     eq_intensity: number;
     compression_intensity: number;

@@ -1,4 +1,5 @@
 import logging
+import math
 import numpy as np
 import scipy.signal
 import scipy.ndimage
@@ -192,33 +193,63 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
             recovered_signal = np.pad(recovered_signal, (0, len(signal) - len(recovered_signal)))
 
         # 5. Dynamic Downward Voice Activity Expander (Studio Noise Gate)
-        # Guarantees zero residual hiss or fan hum between recitation phrases
+        # Specifically tuned for Quran, Naat & Nasheed vocal recitation:
+        # - Wide soft-knee (14 dB) prevents sudden breath chopping
+        # - Fast 6ms attack ensures consonants ("B", "T", "Qaf") are never cut
+        # - Smooth 140ms release envelope preserves natural breath intakes and verse pauses
         if strength > 0.15:
-            frame_sz = int(sample_rate * 0.025)
-            if frame_sz > 0 and len(recovered_signal) > frame_sz:
-                env = np.abs(recovered_signal)
-                env_smooth = scipy.ndimage.uniform_filter1d(env, size=frame_sz)
-                env_db = 20.0 * np.log10(np.maximum(env_smooth, 1e-6))
+            hop = 64
+            ds_sr = sample_rate / hop
+            n_samples = len(recovered_signal)
+            n_frames = n_samples // hop
+            if n_frames > 4:
+                # Sub-sampled envelope calculation for instant, smooth response
+                abs_sig = np.abs(recovered_signal[:n_frames * hop])
+                frame_peaks = np.max(abs_sig.reshape(n_frames, hop), axis=1)
+                env_db = 20.0 * np.log10(np.maximum(frame_peaks, 1e-6))
 
-                # Threshold depends on mode and strength
+                # Mode-dependent threshold & floor
                 if mode in ("maximum", "aggressive"):
-                    gate_thresh = -42.0 + (strength * 16.0)
-                    gate_floor = max(0.0001, (1.0 - strength) * 0.005)
-                else:
-                    gate_thresh = -46.0 + (strength * 14.0)
-                    gate_floor = max(0.0005, (1.0 - strength) * 0.02)
+                    gate_thresh = -44.0 + (strength * 12.0)
+                    gate_floor = max(0.001, (1.0 - strength) * 0.008)
+                    knee_width = 10.0
+                elif mode == "subtle":
+                    gate_thresh = -50.0 + (strength * 8.0)
+                    gate_floor = max(0.02, (1.0 - strength) * 0.08)
+                    knee_width = 16.0
+                else:  # balanced (default for vocal studio)
+                    gate_thresh = -46.0 + (strength * 10.0)
+                    gate_floor = max(0.005, (1.0 - strength) * 0.03)
+                    knee_width = 14.0
 
-                gate_gain = np.ones_like(env_db)
-                below_gate = env_db < gate_thresh
+                raw_gain = np.ones(n_frames, dtype=np.float32)
+                below_mask = env_db < gate_thresh
+                if np.any(below_mask):
+                    under_db = gate_thresh - env_db[below_mask]
+                    attenuation = np.clip(under_db / knee_width, 0.0, 1.0)
+                    raw_gain[below_mask] = (1.0 - attenuation) + (attenuation * gate_floor)
 
-                under_db = gate_thresh - env_db[below_gate]
-                attenuation = np.clip(under_db / 8.0, 0.0, 1.0)
-                gate_gain[below_gate] = (1.0 - attenuation) + (attenuation * gate_floor)
+                # Asymmetric attack/release envelope follower:
+                # Fast attack (6ms): instant opening on vocal articulation
+                # Smooth release (140ms): natural breath intake preservation & room decay
+                alpha_att = math.exp(-1.0 / (ds_sr * 0.006))
+                alpha_rel = math.exp(-1.0 / (ds_sr * 0.140))
 
-                # Smooth the gate envelope to prevent clicks or sudden breathing cutoffs
-                smoothing_len = int(sample_rate * 0.015)
-                gate_gain_smoothed = scipy.ndimage.uniform_filter1d(gate_gain, size=smoothing_len)
-                recovered_signal = recovered_signal * gate_gain_smoothed
+                smoothed_gain = np.empty(n_frames, dtype=np.float32)
+                curr_g = 1.0
+                for i in range(n_frames):
+                    tgt = raw_gain[i]
+                    if tgt > curr_g:
+                        curr_g = (alpha_att * curr_g) + ((1.0 - alpha_att) * tgt)
+                    else:
+                        curr_g = (alpha_rel * curr_g) + ((1.0 - alpha_rel) * tgt)
+                    smoothed_gain[i] = curr_g
+
+                # Interpolate gain back to full audio length
+                xp = np.arange(n_frames) * hop + (hop // 2)
+                x_full = np.arange(n_samples)
+                gain_full = np.interp(x_full, xp, smoothed_gain, left=smoothed_gain[0], right=smoothed_gain[-1]).astype(np.float32)
+                recovered_signal = recovered_signal * gain_full
 
         return recovered_signal.astype(np.float32)
 

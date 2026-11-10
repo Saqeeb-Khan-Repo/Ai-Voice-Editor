@@ -9,7 +9,7 @@ from app.database.session import SessionLocal
 from app.api.health import health_check
 from app.api.audio import upload_audio, get_audio_info, get_audio_metadata, get_audio_analysis, delete_audio
 from app.api.processing import start_processing_job, get_job_status, list_jobs, cancel_job
-from app.api.outputs import get_output_metadata, delete_output_file
+from app.api.outputs import get_output_metadata, delete_output_file, download_output_file
 from app.api.monitoring import get_overview, get_engine_status, get_storage_usage
 from app.api.settings import get_current_settings, update_settings, SettingsUpdateSchema
 from app.schemas.processing import ProcessingRequest
@@ -88,6 +88,19 @@ def test_processing_job_lifecycle(db_session, synthetic_audio_factory):
     out_meta = get_output_metadata(final_job.output_id, db=db_session)
     assert out_meta["quality_report"]["overall_quality_passed"] is True
     assert "Leveled integrated loudness" in out_meta["quality_report"]["quality_summary"] or "Cleaned" in out_meta["quality_report"]["quality_summary"] or "Guaranteed" in out_meta["quality_report"]["quality_summary"]
+
+    # Verify Multi-Format Export Downloads (WAV 24-bit, WAV 16-bit, MP3 320 kbps)
+    res_wav24 = download_output_file(output_id=final_job.output_id, format="wav_24", db=db_session)
+    assert res_wav24.media_type == "audio/wav"
+    assert "24bit.wav" in res_wav24.filename
+
+    res_wav16 = download_output_file(output_id=final_job.output_id, format="wav_16", db=db_session)
+    assert res_wav16.media_type == "audio/wav"
+    assert "16bit.wav" in res_wav16.filename
+
+    res_mp3 = download_output_file(output_id=final_job.output_id, format="mp3_320", db=db_session)
+    assert res_mp3.media_type == "audio/mpeg"
+    assert "320kbps.mp3" in res_mp3.filename
 
 def test_monitoring_endpoints():
     ov = get_overview()
