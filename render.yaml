@@ -1,0 +1,33 @@
+services:
+  # Python FastAPI Backend
+  - type: web
+    name: ai-naat-studio-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: "apt-get update && apt-get install -y libsndfile1 ffmpeg && pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  # Next.js Frontend
+  - type: web
+    name: ai-naat-studio-frontend
+    env: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm run start"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.17.0
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: ai-naat-studio-backend
+          property: host

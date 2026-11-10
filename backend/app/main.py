@@ -38,10 +38,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Strict local CORS
+# CORS configuration (supports local development and cloud deployments)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
