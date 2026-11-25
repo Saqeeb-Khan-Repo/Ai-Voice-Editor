@@ -94,6 +94,15 @@ def upload_audio(
             detail="Audio recording is too short (minimum 0.2 seconds required)."
         )
 
+    if duration > settings.MAX_AUDIO_DURATION_SECONDS:
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+        max_mins = settings.MAX_AUDIO_DURATION_SECONDS // 60
+        raise HTTPException(
+            status_code=400,
+            detail=f"Audio recording exceeds maximum allowed duration of {max_mins} minutes ({settings.MAX_AUDIO_DURATION_SECONDS}s)."
+        )
+
     analysis_report = AudioAnalyzer.analyze(audio_data, sample_rate)
 
     audio_file_record = AudioFile(

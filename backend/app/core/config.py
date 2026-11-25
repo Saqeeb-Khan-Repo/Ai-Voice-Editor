@@ -32,8 +32,9 @@ class Settings(BaseSettings):
     # Bundled sample audio path (inside backend or repo root)
     SAMPLES_DIR: Path = Path(__file__).resolve().parent.parent.parent / "samples"
     
-    # Upload limits
-    MAX_UPLOAD_SIZE_MB: int = 100
+    # Upload limits (supports up to 10-minute studio WAV recordings)
+    MAX_UPLOAD_SIZE_MB: int = 200
+    MAX_AUDIO_DURATION_SECONDS: int = 600
     ALLOWED_EXTENSIONS: List[str] = [".wav", ".mp3", ".flac", ".webm", ".ogg", ".m4a"]
     
     # Audio Engine defaults

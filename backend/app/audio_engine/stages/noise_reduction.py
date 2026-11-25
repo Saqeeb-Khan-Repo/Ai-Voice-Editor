@@ -136,7 +136,6 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
         )
 
         mag = np.abs(Zxx)
-        phase = np.angle(Zxx)
 
         # 1. Noise Profile Estimation
         # Find frames with lowest energy to capture ambient room tone and preamp noise
@@ -173,9 +172,8 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
         smoothed_mask = scipy.ndimage.uniform_filter(gain_mask, size=(3, 3))
         smoothed_mask = np.maximum(smoothed_mask, beta)
 
-        # Apply mask
-        processed_mag = mag * smoothed_mask
-        processed_Zxx = processed_mag * np.exp(1j * phase)
+        # Apply mask directly to complex STFT (preserves exact phase without exp/angle overhead)
+        processed_Zxx = Zxx * smoothed_mask
 
         # ISTFT
         _, recovered_signal = scipy.signal.istft(

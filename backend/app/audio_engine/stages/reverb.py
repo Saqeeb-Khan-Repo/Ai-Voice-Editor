@@ -41,23 +41,22 @@ class NaturalReverbStage(PipelineStage):
         pre_delay_samples = int(sample_rate * (pre_delay_ms / 1000.0))
         delayed_signal = np.pad(mono_input, (pre_delay_samples, 0))[:len(mono_input)]
 
-        # 2. Parallel Feedback Comb Filters with coprime delays
-        # Delay lengths in milliseconds scaled to sample rate
+        # 2. Generate exact Moorer Reverb Impulse Response (LTI) for ultra-fast O(N log M) oaconvolve
+        ir_len = max(256, min(len(mono_input), int(sample_rate * min(3.0, max(0.8, decay_time * 1.35)))))
+        impulse = np.zeros(ir_len, dtype=np.float32)
+        impulse[0] = 1.0
+
+        # Parallel Feedback Comb Filters with coprime delays
         comb_delays_ms = [29.7, 37.1, 41.1, 43.7]
         comb_outputs_l = []
         comb_outputs_r = []
 
         for idx, delay_ms in enumerate(comb_delays_ms):
             d_samples = int(sample_rate * (delay_ms / 1000.0))
-            # Feedback gain calculated from decay time (T60)
-            # gain = 10^(-3 * delay / decay_time)
             feedback = 10.0 ** (-3.0 * (delay_ms / 1000.0) / max(0.2, decay_time))
             feedback = min(0.92, feedback)
 
-            # Comb filter with damping
-            comb_out = self._filtered_comb(delayed_signal, d_samples, feedback, damping)
-            
-            # Stereo spread: alternate phase/comb distribution
+            comb_out = self._filtered_comb(impulse, d_samples, feedback, damping)
             if idx % 2 == 0:
                 comb_outputs_l.append(comb_out)
                 comb_outputs_r.append(comb_out * 0.85)
@@ -65,29 +64,31 @@ class NaturalReverbStage(PipelineStage):
                 comb_outputs_l.append(comb_out * 0.85)
                 comb_outputs_r.append(comb_out)
 
-        wet_l = np.sum(comb_outputs_l, axis=0) * 0.25
-        wet_r = np.sum(comb_outputs_r, axis=0) * 0.25
+        ir_l = np.sum(comb_outputs_l, axis=0) * 0.25
+        ir_r = np.sum(comb_outputs_r, axis=0) * 0.25
 
-        # 3. Series Allpass Filters for spatial diffusion
+        # Series Allpass Filters for spatial diffusion
         allpass_delays_ms = [5.0, 1.7]
         for ap_ms in allpass_delays_ms:
             ap_samples = int(sample_rate * (ap_ms / 1000.0))
-            wet_l = self._allpass_filter(wet_l, ap_samples, 0.5)
-            wet_r = self._allpass_filter(wet_r, ap_samples + 2, 0.5)
+            ir_l = self._allpass_filter(ir_l, ap_samples, 0.5)
+            ir_r = self._allpass_filter(ir_r, ap_samples + 2, 0.5)
 
-        # 4. Soft High-Cut on Reverb Tail (gentle lowpass at 5.5 kHz)
+        # Soft High-Cut on Reverb Tail (gentle lowpass at 5.5 kHz)
         nyquist = sample_rate * 0.5
         b_lp, a_lp = scipy.signal.butter(1, min(5500.0, nyquist * 0.8) / nyquist, btype="low")
-        wet_l = scipy.signal.lfilter(b_lp, a_lp, wet_l)
-        wet_r = scipy.signal.lfilter(b_lp, a_lp, wet_r)
+        ir_l = scipy.signal.lfilter(b_lp, a_lp, ir_l).astype(np.float32)
+        ir_r = scipy.signal.lfilter(b_lp, a_lp, ir_r).astype(np.float32)
 
-        # 5. Blend Dry and Wet
+        # 3. Blend Dry and Wet using Overlap-Add FFT Convolution
+        n_sig = len(mono_input)
         if is_1d:
-            # Mono output
-            wet_mono = (wet_l + wet_r) * 0.5
+            ir_mono = ((ir_l + ir_r) * 0.5).astype(np.float32)
+            wet_mono = scipy.signal.oaconvolve(delayed_signal, ir_mono, mode="full")[:n_sig]
             output = (dry * audio) + (wet * wet_mono)
         else:
-            # Stereo output
+            wet_l = scipy.signal.oaconvolve(delayed_signal, ir_l, mode="full")[:n_sig]
+            wet_r = scipy.signal.oaconvolve(delayed_signal, ir_r, mode="full")[:n_sig]
             out_l = (dry * audio[:, 0]) + (wet * wet_l)
             out_r = (dry * audio[:, 1]) + (wet * wet_r)
             output = np.column_stack([out_l, out_r])
@@ -105,37 +106,52 @@ class NaturalReverbStage(PipelineStage):
         """
         Feedback comb filter with 1-pole lowpass damping inside feedback loop.
         y[n] = x[n] + feedback * ( (1-d)*buffer[n-delay] + d*buffer_prev )
+        Block-vectorized over delay-length chunks using C-level scipy.signal.lfilter.
         """
-        out = np.zeros_like(signal)
         n = len(signal)
         if delay >= n or delay <= 0:
             return signal * feedback
 
-        # Fast vectorization / loop
-        filter_store = 0.0
+        out = np.empty(n, dtype=np.float64)
+        sig64 = np.asarray(signal, dtype=np.float64)
         d_inv = 1.0 - damping
+        b_lp = np.array([d_inv], dtype=np.float64)
+        a_lp = np.array([1.0, -damping], dtype=np.float64)
+        zf = np.zeros(1, dtype=np.float64)
 
-        for i in range(n):
-            delayed_sample = out[i - delay] if i >= delay else 0.0
-            filter_store = (delayed_sample * d_inv) + (filter_store * damping)
-            out[i] = signal[i] + (feedback * filter_store)
+        # First block has zero delayed feedback
+        out[:delay] = sig64[:delay]
 
-        return out
+        for start in range(delay, n, delay):
+            end = min(start + delay, n)
+            prev_block = out[start - delay : end - delay]
+            filtered_block, zf = scipy.signal.lfilter(b_lp, a_lp, prev_block, zi=zf)
+            out[start:end] = sig64[start:end] + feedback * filtered_block
+
+        return out.astype(np.float32)
 
     @staticmethod
     def _allpass_filter(signal: np.ndarray, delay: int, gain: float) -> np.ndarray:
         """
         Schroeder all-pass filter for diffusion.
         y[n] = -g*x[n] + x[n-delay] + g*y[n-delay]
+        Block-vectorized over delay-length chunks.
         """
-        out = np.zeros_like(signal)
         n = len(signal)
         if delay >= n or delay <= 0:
             return signal
 
-        for i in range(n):
-            x_del = signal[i - delay] if i >= delay else 0.0
-            y_del = out[i - delay] if i >= delay else 0.0
-            out[i] = -gain * signal[i] + x_del + gain * y_del
+        out = np.empty(n, dtype=np.float64)
+        sig64 = np.asarray(signal, dtype=np.float64)
 
-        return out
+        out[:delay] = -gain * sig64[:delay]
+
+        for start in range(delay, n, delay):
+            end = min(start + delay, n)
+            out[start:end] = (
+                -gain * sig64[start:end]
+                + sig64[start - delay : end - delay]
+                + gain * out[start - delay : end - delay]
+            )
+
+        return out.astype(np.float32)

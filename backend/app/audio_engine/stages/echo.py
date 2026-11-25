@@ -75,17 +75,23 @@ class EchoDelayStage(PipelineStage):
 
     @staticmethod
     def _apply_delay_loop(signal: np.ndarray, delay: int, feedback: float, damping: float) -> np.ndarray:
-        out = np.zeros_like(signal)
         n = len(signal)
+        if delay >= n or delay <= 0:
+            return np.zeros_like(signal)
+
+        out = np.zeros(n, dtype=np.float64)
+        sig64 = np.asarray(signal, dtype=np.float64)
         feedback = min(0.65, max(0.05, feedback))
 
-        filter_mem = 0.0
         d_inv = 1.0 - damping
+        b_lp = np.array([d_inv], dtype=np.float64)
+        a_lp = np.array([1.0, -damping], dtype=np.float64)
+        zf = np.zeros(1, dtype=np.float64)
 
-        for i in range(delay, n):
-            delayed_sample = out[i - delay] + signal[i - delay]
-            # 1-pole lowpass damping
-            filter_mem = (delayed_sample * d_inv) + (filter_mem * damping)
-            out[i] = feedback * filter_mem
+        for start in range(delay, n, delay):
+            end = min(start + delay, n)
+            delayed_block = out[start - delay : end - delay] + sig64[start - delay : end - delay]
+            filtered_block, zf = scipy.signal.lfilter(b_lp, a_lp, delayed_block, zi=zf)
+            out[start:end] = feedback * filtered_block
 
-        return out
+        return out.astype(np.float32)
