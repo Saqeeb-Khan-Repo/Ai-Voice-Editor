@@ -161,9 +161,12 @@ def load_specific_sample_audio(sample_key: str, db: Session = Depends(get_db)):
         sample_key = "hijaz"
 
     sample_meta = SAMPLE_LIBRARY[sample_key]
-    sample_src = os.path.join(settings.STORAGE_DIR, "samples", sample_meta["file"])
+    sample_src = os.path.join(settings.SAMPLES_DIR, sample_meta["file"])
     if not os.path.exists(sample_src):
-        # Fallback to general sample
+        sample_src = os.path.join(settings.STORAGE_DIR, "samples", sample_meta["file"])
+    if not os.path.exists(sample_src):
+        sample_src = os.path.join(settings.SAMPLES_DIR, "sample_naat_with_noise.wav")
+    if not os.path.exists(sample_src):
         sample_src = os.path.join(settings.STORAGE_DIR, "samples", "sample_naat_with_noise.wav")
 
     audio_id = str(uuid.uuid4())

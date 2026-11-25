@@ -18,6 +18,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ai_naat_studio")
 
+# Initialize database defensively on module load
+try:
+    init_db()
+except Exception as _e:
+    logger.warning(f"Initial DB check warning: {_e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup

@@ -29,4 +29,8 @@ def get_db():
         db.close()
 
 def init_db():
+    try:
+        settings.DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
     Base.metadata.create_all(bind=engine)

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from app.core.config import settings
 from app.database.session import get_db
 from app.models.audio_file import AudioFile
 from app.models.processing_job import ProcessingJob
@@ -51,8 +52,16 @@ def start_processing_job(
     db.commit()
     db.refresh(job)
 
-    # Submit to non-blocking worker thread pool
-    job_runner.submit_job(job_id)
+    # In serverless environments (e.g. Vercel), execute synchronously to complete before function freezing
+    if settings.IS_VERCEL:
+        job_runner._run_job_lifecycle(job_id)
+        db.refresh(job)
+        out = db.query(AudioOutput.id).filter(AudioOutput.job_id == job.id).first()
+        output_id = out[0] if out else None
+    else:
+        # Submit to non-blocking worker thread pool
+        job_runner.submit_job(job_id)
+        output_id = None
 
     return ProcessingJobResponse(
         job_id=job.id,
@@ -63,6 +72,9 @@ def start_processing_job(
         preset_name=job.preset_name,
         config_parameters=job.config_parameters,
         decision_log=decision_log,
+        output_id=output_id,
+        error_message=job.error_message,
+        execution_time_ms=job.execution_time_ms,
         created_at=job.created_at.isoformat()
     )
 

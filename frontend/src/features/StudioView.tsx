@@ -212,9 +212,59 @@ export const StudioView: React.FC<StudioViewProps> = ({
           type: mimeType || "audio/webm",
         });
 
-        const recFile = new File([recordedBlob], `Live_Vocal_Recording_${Date.now()}.webm`, {
-          type: mimeType || "audio/webm",
-        });
+        let recFile: File;
+        try {
+          // Decode browser recording and encode to standard 44.1kHz 16-bit PCM WAV
+          const arrayBuffer = await recordedBlob.arrayBuffer();
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtx) {
+            const ctx = new AudioCtx();
+            const decoded = await ctx.decodeAudioData(arrayBuffer);
+            ctx.close();
+            const numCh = decoded.numberOfChannels;
+            const sr = decoded.sampleRate;
+            const numSamples = decoded.length;
+            const blockAlign = numCh * 2;
+            const dataSize = numSamples * blockAlign;
+            const wavBuf = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(wavBuf);
+            const writeStr = (o: number, s: string) => {
+              for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i));
+            };
+            writeStr(0, "RIFF");
+            view.setUint32(4, 36 + dataSize, true);
+            writeStr(8, "WAVE");
+            writeStr(12, "fmt ");
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numCh, true);
+            view.setUint32(24, sr, true);
+            view.setUint32(28, sr * blockAlign, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, 16, true);
+            writeStr(36, "data");
+            view.setUint32(40, dataSize, true);
+            let offset = 44;
+            for (let i = 0; i < numSamples; i++) {
+              for (let ch = 0; ch < numCh; ch++) {
+                const s = Math.max(-1, Math.min(1, decoded.getChannelData(ch)[i]));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+                offset += 2;
+              }
+            }
+            recFile = new File([wavBuf], `Live_Vocal_Recording_${Date.now()}.wav`, {
+              type: "audio/wav",
+            });
+          } else {
+            recFile = new File([recordedBlob], `Live_Vocal_Recording_${Date.now()}.webm`, {
+              type: mimeType || "audio/webm",
+            });
+          }
+        } catch {
+          recFile = new File([recordedBlob], `Live_Vocal_Recording_${Date.now()}.webm`, {
+            type: mimeType || "audio/webm",
+          });
+        }
         await handleFile(recFile);
       };
 
@@ -252,6 +302,12 @@ export const StudioView: React.FC<StudioViewProps> = ({
         automatic_mode: true,
       });
       setActiveJob(job);
+
+      if (job.status === "completed") {
+        setIsProcessing(false);
+        onJobCompleted(job);
+        return;
+      }
 
       const pollInterval = setInterval(async () => {
         try {

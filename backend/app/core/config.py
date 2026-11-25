@@ -1,15 +1,19 @@
+import os
 from pathlib import Path
 from typing import List, Literal
 from pydantic_settings import BaseSettings
+
+IS_VERCEL = os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL_ENV") is not None
 
 class Settings(BaseSettings):
     APP_NAME: str = "AI Naat Studio"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    IS_VERCEL: bool = IS_VERCEL
     
     # Server Binding
-    HOST: str = "127.0.0.1"
-    PORT: int = 8000
+    HOST: str = "0.0.0.0" if IS_VERCEL else "127.0.0.1"
+    PORT: int = int(os.environ.get("PORT", 8000))
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -17,13 +21,16 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001"
     ]
     
-    # Storage Paths
-    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent
+    # Storage Paths: on Vercel lambda /tmp is the only writable filesystem
+    BASE_DIR: Path = Path("/tmp") if IS_VERCEL else Path(__file__).resolve().parent.parent.parent.parent
     STORAGE_DIR: Path = BASE_DIR / "storage"
     ORIGINALS_DIR: Path = STORAGE_DIR / "originals"
     PROCESSED_DIR: Path = STORAGE_DIR / "processed"
     TEMPORARY_DIR: Path = STORAGE_DIR / "temporary"
     DATABASE_PATH: Path = STORAGE_DIR / "ai_naat_studio.db"
+
+    # Bundled sample audio path (inside backend or repo root)
+    SAMPLES_DIR: Path = Path(__file__).resolve().parent.parent.parent / "samples"
     
     # Upload limits
     MAX_UPLOAD_SIZE_MB: int = 100
@@ -47,7 +54,11 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Ensure directories exist
-settings.ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
-settings.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-settings.TEMPORARY_DIR.mkdir(parents=True, exist_ok=True)
+# Ensure storage directories exist safely
+try:
+    settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    settings.ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    settings.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    settings.TEMPORARY_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
