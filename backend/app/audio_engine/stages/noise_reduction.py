@@ -150,18 +150,20 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
             noise_profile = np.percentile(mag, 15, axis=1, keepdims=True)
 
         # 2. Over-subtraction and Spectral Floor Tuning
+        # Keep alpha moderate (1.2 - 2.2) so vocal formants remain rich and never sound hollow/underwater;
+        # the adaptive downward expander below handles deep pause silence.
         if mode == "maximum":
-            alpha = 2.4 + (strength * 3.0)
-            beta = max(0.00005, (1.0 - strength) * 0.004)
+            alpha = 1.6 + (strength * 0.8)
+            beta = max(0.008, (1.0 - strength) * 0.025)
         elif mode == "aggressive":
-            alpha = 2.0 + (strength * 2.6)
-            beta = max(0.0001, (1.0 - strength) * 0.008)
+            alpha = 1.4 + (strength * 0.7)
+            beta = max(0.010, (1.0 - strength) * 0.03)
         elif mode == "subtle":
-            alpha = 1.1 + (strength * 1.5)
-            beta = max(0.005, (1.0 - strength) * 0.05)
+            alpha = 0.9 + (strength * 0.5)
+            beta = max(0.02, (1.0 - strength) * 0.06)
         else:  # balanced
-            alpha = 1.8 + (strength * 2.4)
-            beta = max(0.0002, (1.0 - strength) * 0.01)
+            alpha = 1.2 + (strength * 0.7)
+            beta = max(0.012, (1.0 - strength) * 0.035)
 
         # 3. Soft-Knee Spectral Gain Mask
         snr_est = np.maximum(mag / (noise_profile + 1e-10), 1e-6)
@@ -206,19 +208,25 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
                 frame_peaks = np.max(abs_sig.reshape(n_frames, hop), axis=1)
                 env_db = 20.0 * np.log10(np.maximum(frame_peaks, 1e-6))
 
-                # Mode-dependent threshold & floor
+                # Adaptive threshold relative to actual noise floor and vocal level
+                # Ensures soft vocal syllables are NEVER chopped even on quiet mic recordings
+                est_noise_db = float(np.percentile(env_db, 10))
+                est_vocal_db = float(np.percentile(env_db, 90))
+                safe_ceiling = min(-38.0, est_vocal_db - 20.0)
+                adaptive_base = max(-62.0, min(safe_ceiling, est_noise_db + 7.5))
+
                 if mode in ("maximum", "aggressive"):
-                    gate_thresh = -42.0 + (strength * 12.0)
-                    gate_floor = max(0.00005, (1.0 - strength) * 0.001)
-                    knee_width = 11.0
+                    gate_thresh = adaptive_base + 2.0
+                    gate_floor = max(0.0002, (1.0 - strength) * 0.003)
+                    knee_width = 14.0
                 elif mode == "subtle":
-                    gate_thresh = -48.0 + (strength * 8.0)
-                    gate_floor = max(0.001, (1.0 - strength) * 0.02)
+                    gate_thresh = adaptive_base - 3.0
+                    gate_floor = max(0.005, (1.0 - strength) * 0.03)
+                    knee_width = 16.0
+                else:  # balanced
+                    gate_thresh = adaptive_base
+                    gate_floor = max(0.0005, (1.0 - strength) * 0.008)
                     knee_width = 15.0
-                else:  # balanced (default for vocal studio)
-                    gate_thresh = -44.0 + (strength * 10.0)
-                    gate_floor = max(0.0001, (1.0 - strength) * 0.003)
-                    knee_width = 12.0
 
                 raw_gain = np.ones(n_frames, dtype=np.float32)
                 below_mask = env_db < gate_thresh

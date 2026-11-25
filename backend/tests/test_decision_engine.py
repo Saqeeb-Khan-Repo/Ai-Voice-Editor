@@ -24,7 +24,7 @@ def test_studio_naat_preset(synthetic_audio_factory):
     config, log = EnhancementDecisionEngine.decide(analysis, preset="studio_naat")
 
     assert config["preset"] == "studio_naat"
-    assert config["loudness"]["target_lufs"] == -14.0
+    assert config["loudness"]["target_lufs"] == -16.0
     assert config["compressor"]["ratio"] >= 2.0
     assert config["reverb"]["wet"] >= 0.12
 

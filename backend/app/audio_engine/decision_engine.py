@@ -50,26 +50,26 @@ class EnhancementDecisionEngine:
                 "noise_strength": 0.40,
             },
             "studio_naat": {
-                "base_reverb_wet": 0.18,
-                "base_reverb_decay": 1.8,
-                "echo_enabled": True,
-                "echo_wet": 0.14,
-                "echo_delay_ms": 240.0,
-                "echo_feedback": 0.24,
+                "base_reverb_wet": 0.13,
+                "base_reverb_decay": 1.4,
+                "echo_enabled": False,
+                "echo_wet": 0.0,
+                "echo_delay_ms": 220.0,
+                "echo_feedback": 0.15,
                 "autotune_enabled": False,  # Strictly preserve natural reciter pitch, Tajweed & emotion
                 "autotune_strength": 0.0,
                 "autotune_scale": "chromatic",
                 "tube_enabled": True,
-                "tube_warmth": 0.30,
+                "tube_warmth": 0.18,
                 "doubler_enabled": True,
-                "doubler_mix": 0.12,
-                "doubler_width": 0.8,
-                "target_lufs": -14.0,  # Studio broadcast loudness
-                "comp_ratio": 2.4,     # Transparent optical vocal leveling
-                "comp_attack_ms": 20.0,
-                "comp_release_ms": 160.0,
-                "air_boost_db": 3.5,
-                "noise_strength": 0.80, # Complete noise elimination
+                "doubler_mix": 0.06,
+                "doubler_width": 0.75,
+                "target_lufs": -16.0,  # Broadcast / Podcast studio loudness without pumping
+                "comp_ratio": 2.3,     # Transparent optical vocal leveling
+                "comp_attack_ms": 22.0,
+                "comp_release_ms": 180.0,
+                "air_boost_db": 2.5,
+                "noise_strength": 0.70, # Clean noise removal preserving full vocal body
             },
             "spacious_naat": {
                 "base_reverb_wet": 0.22,

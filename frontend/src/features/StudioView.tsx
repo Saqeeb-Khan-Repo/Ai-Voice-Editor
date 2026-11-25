@@ -28,7 +28,7 @@ import { listSampleRecordings } from "@/services/api";
 import { AudioWaveformPlayer } from "@/components/AudioWaveformPlayer";
 import {
   decodeAudioFile,
-  encodeAudioBufferToWav,
+  encodeAudioBufferToMp3,
   enhanceAudioStateless,
   triggerBlobDownload,
   EnhancementStats,
@@ -76,6 +76,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
   const [decodedAudioBuffer, setDecodedAudioBuffer] = useState<AudioBuffer | null>(null);
   const [localOriginalUrl, setLocalOriginalUrl] = useState<string | null>(null);
   const [enhancedAudioBuffer, setEnhancedAudioBuffer] = useState<AudioBuffer | null>(null);
+  const [enhancedMp3Blob, setEnhancedMp3Blob] = useState<Blob | null>(null);
   const [localEnhancedUrl, setLocalEnhancedUrl] = useState<string | null>(null);
   const [enhancementStats, setEnhancementStats] = useState<EnhancementStats | null>(null);
   const [showRecordedPopup, setShowRecordedPopup] = useState(false);
@@ -136,6 +137,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
       setDecodedAudioBuffer(audioBuffer);
       setLocalOriginalUrl(playbackUrl);
       setEnhancedAudioBuffer(null);
+      setEnhancedMp3Blob(null);
       setLocalEnhancedUrl(null);
       setEnhancementStats(null);
       setActiveJob(null);
@@ -370,6 +372,7 @@ export const StudioView: React.FC<StudioViewProps> = ({
 
       if (localEnhancedUrl) URL.revokeObjectURL(localEnhancedUrl);
       setEnhancedAudioBuffer(result.enhancedBuffer);
+      setEnhancedMp3Blob(result.enhancedMp3Blob);
       setLocalEnhancedUrl(result.enhancedUrl);
       setEnhancementStats(result.stats);
 
@@ -405,11 +408,13 @@ export const StudioView: React.FC<StudioViewProps> = ({
     setIsProcessing(false);
   };
 
-  const handleDownloadFormat = (bitDepth: 24 | 16) => {
-    if (!enhancedAudioBuffer || !currentAudio) return;
-    const blob = encodeAudioBufferToWav(enhancedAudioBuffer, bitDepth);
+  const handleDownloadMp3 = () => {
+    if (!currentAudio) return;
+    const blob =
+      enhancedMp3Blob || (enhancedAudioBuffer ? encodeAudioBufferToMp3(enhancedAudioBuffer, 320) : null);
+    if (!blob) return;
     const baseName = currentAudio.filename.replace(/\.[^/.]+$/, "");
-    triggerBlobDownload(blob, `${baseName}_Studio_Enhanced_${bitDepth}bit.wav`);
+    triggerBlobDownload(blob, `${baseName}_Studio_Enhanced.mp3`);
   };
 
   // Synchronized A/B Playback Engine
@@ -1016,50 +1021,26 @@ export const StudioView: React.FC<StudioViewProps> = ({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* WAV 24-bit */}
+                <div>
                   <button
                     type="button"
-                    onClick={() => handleDownloadFormat(24)}
-                    className="text-left p-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 transition group flex flex-col justify-between"
+                    onClick={handleDownloadMp3}
+                    className="w-full text-left p-5 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 transition group flex items-center justify-between gap-4"
                   >
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-emerald-400 font-mono">WAV 24-bit</span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-bold text-emerald-400 font-mono">MP3 320 kbps</span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">
                           Studio Master
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-300">
-                        Full dynamic range, lossless 24-bit studio master. Recommended for archiving and publishing.
+                      <p className="text-xs text-slate-300">
+                        High-bitrate studio MP3 master. Plays cleanly on every phone, WhatsApp, YouTube, car, and media player.
                       </p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-emerald-500/20 flex items-center justify-between text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">
-                      <span>Download WAV 24-bit</span>
-                      <Download size={14} />
-                    </div>
-                  </button>
-
-                  {/* WAV 16-bit */}
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadFormat(16)}
-                    className="text-left p-4 rounded-2xl bg-studio-950 hover:bg-studio-800 border border-studio-800 hover:border-cyan-500/40 transition group flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-cyan-400 font-mono">WAV 16-bit</span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-studio-800 text-slate-400">
-                          Universal / Mobile
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        Universal 16-bit uncompressed PCM audio. Plays natively on every phone, car, and media player.
-                      </p>
-                    </div>
-                    <div className="mt-3 pt-2 border-t border-studio-800 flex items-center justify-between text-xs font-bold text-cyan-400 group-hover:translate-x-0.5 transition">
-                      <span>Download WAV 16-bit</span>
-                      <Download size={14} />
+                    <div className="px-4 py-2.5 rounded-xl bg-emerald-500 group-hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-2 shrink-0 transition shadow-lg">
+                      <Download size={16} />
+                      <span>Download MP3</span>
                     </div>
                   </button>
                 </div>
@@ -1175,22 +1156,14 @@ export const StudioView: React.FC<StudioViewProps> = ({
                 <Play size={18} />
                 <span>Listen & Compare (Original vs Enhanced)</span>
               </button>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleDownloadFormat(24)}
-                  className="py-2.5 px-3 rounded-xl bg-studio-800 hover:bg-studio-700 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                >
-                  <Download size={14} /> WAV 24-bit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadFormat(16)}
-                  className="py-2.5 px-3 rounded-xl bg-studio-800 hover:bg-studio-700 text-cyan-400 text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                >
-                  <Download size={14} /> WAV 16-bit
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleDownloadMp3}
+                className="w-full py-3 px-4 rounded-xl bg-studio-800 hover:bg-studio-700 text-emerald-400 text-xs font-bold flex items-center justify-center gap-2 transition border border-emerald-500/30"
+              >
+                <Download size={15} />
+                <span>Download Enhanced MP3 (320 kbps)</span>
+              </button>
             </div>
           </div>
         </div>

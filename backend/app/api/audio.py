@@ -219,13 +219,13 @@ def enhance_audio_direct(
     )
 
     out_buf = io.BytesIO()
-    sf.write(out_buf, enhanced_audio, sample_rate, subtype="PCM_16", format="WAV")
+    sf.write(out_buf, enhanced_audio, sample_rate, format="MP3", subtype="MPEG_LAYER_III", compression_level=0.0)
     out_buf.seek(0)
 
     comp_report = result.get("comparison_report", {})
     proc_an = result.get("processed_analysis", {})
     headers = {
-        "Content-Disposition": 'attachment; filename="enhanced_chunk.wav"',
+        "Content-Disposition": 'attachment; filename="enhanced_chunk.mp3"',
         "X-Noise-Floor-Before": str(analysis.get("noise_floor_dbfs", -40.0)),
         "X-Noise-Floor-After": str(proc_an.get("noise_floor_dbfs", -80.0)),
         "X-LUFS-After": str(proc_an.get("integrated_lufs", -16.0)),
@@ -234,7 +234,7 @@ def enhance_audio_direct(
         "Access-Control-Expose-Headers": "X-Noise-Floor-Before, X-Noise-Floor-After, X-LUFS-After, X-True-Peak-After, X-SNR-Improvement",
     }
 
-    return StreamingResponse(out_buf, media_type="audio/wav", headers=headers)
+    return StreamingResponse(out_buf, media_type="audio/mpeg", headers=headers)
 
 @router.post("/load-sample/{sample_key}", response_model=AudioUploadResponse)
 def load_specific_sample_audio(sample_key: str, db: Session = Depends(get_db)):
