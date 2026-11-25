@@ -33,3 +33,5 @@ storage/temporary/*
 Thumbs.db
 .vscode/
 .idea/
+
+.vercel
