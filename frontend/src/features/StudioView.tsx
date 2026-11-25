@@ -22,6 +22,7 @@ import {
   ArrowRightLeft,
   FileAudio,
   X,
+  Sliders,
 } from "lucide-react";
 import { AudioUploadResponse, ProcessingJobResponse } from "@/types";
 import { listSampleRecordings } from "@/services/api";
@@ -29,9 +30,11 @@ import { AudioWaveformPlayer } from "@/components/AudioWaveformPlayer";
 import {
   decodeAudioFile,
   encodeAudioBufferToMp3,
+  encodeAudioBufferToWav,
   enhanceAudioStateless,
   triggerBlobDownload,
   EnhancementStats,
+  StudioControlOptions,
 } from "@/utils/audioChunker";
 
 interface StudioViewProps {
@@ -82,6 +85,14 @@ export const StudioView: React.FC<StudioViewProps> = ({
   const [showRecordedPopup, setShowRecordedPopup] = useState(false);
   const [showCompletedPopup, setShowCompletedPopup] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [studioControls, setStudioControls] = useState<StudioControlOptions>({
+    noiseReductionLevel: "medium",
+    reverbLevel: "medium",
+    vocalWarmth: 0.5,
+    vocalClarity: 0.6,
+    compressionAmount: 0.45,
+    outputQuality: "high",
+  });
 
   // 7: Synchronized A/B Comparison state
   const [abActiveSource, setAbActiveSource] = useState<"original" | "enhanced">("enhanced");
@@ -367,7 +378,8 @@ export const StudioView: React.FC<StudioViewProps> = ({
               : prev
           );
         },
-        controller.signal
+        controller.signal,
+        studioControls
       );
 
       if (localEnhancedUrl) URL.revokeObjectURL(localEnhancedUrl);
@@ -410,11 +422,18 @@ export const StudioView: React.FC<StudioViewProps> = ({
 
   const handleDownloadMp3 = () => {
     if (!currentAudio) return;
-    const blob =
-      enhancedMp3Blob || (enhancedAudioBuffer ? encodeAudioBufferToMp3(enhancedAudioBuffer, 320) : null);
-    if (!blob) return;
     const baseName = currentAudio.filename.replace(/\.[^/.]+$/, "");
-    triggerBlobDownload(blob, `${baseName}_Studio_Enhanced.mp3`);
+    if (studioControls.outputQuality === "wav") {
+      const wavBlob = enhancedAudioBuffer ? encodeAudioBufferToWav(enhancedAudioBuffer) : enhancedMp3Blob;
+      if (!wavBlob) return;
+      triggerBlobDownload(wavBlob, `${baseName}_Studio_Master_24bit.wav`);
+      return;
+    }
+    const kbps = studioControls.outputQuality === "standard" ? 192 : 320;
+    const blob =
+      enhancedMp3Blob || (enhancedAudioBuffer ? encodeAudioBufferToMp3(enhancedAudioBuffer, kbps) : null);
+    if (!blob) return;
+    triggerBlobDownload(blob, `${baseName}_Studio_Enhanced_${kbps}k.mp3`);
   };
 
   // Synchronized A/B Playback Engine
@@ -768,6 +787,146 @@ export const StudioView: React.FC<StudioViewProps> = ({
             />
           </div>
 
+          {/* STUDIO VOCAL CONTROLS */}
+          <div className="bg-studio-900 border border-studio-800 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-studio-800 pb-3">
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <Sliders size={14} /> Studio Enhancement Controls
+              </span>
+              <span className="text-[11px] font-mono text-slate-400">Naat Vocal Mastering</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Noise Reduction Level */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-slate-300 block">Noise Reduction</label>
+                <div className="grid grid-cols-3 gap-1 p-1 bg-studio-950 rounded-xl border border-studio-800">
+                  {(["low", "medium", "high"] as const).map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setStudioControls((c) => ({ ...c, noiseReductionLevel: lvl }))}
+                      className={`py-1.5 rounded-lg text-[11px] font-mono font-bold capitalize transition ${
+                        studioControls.noiseReductionLevel === lvl
+                          ? "bg-amber-500 text-slate-950 shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Studio Reverb Level */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-slate-300 block">Studio Reverb</label>
+                <div className="grid grid-cols-3 gap-1 p-1 bg-studio-950 rounded-xl border border-studio-800">
+                  {(["low", "medium", "high"] as const).map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setStudioControls((c) => ({ ...c, reverbLevel: lvl }))}
+                      className={`py-1.5 rounded-lg text-[11px] font-mono font-bold capitalize transition ${
+                        studioControls.reverbLevel === lvl
+                          ? "bg-amber-500 text-slate-950 shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Output Quality */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-slate-300 block">Output Quality</label>
+                <div className="grid grid-cols-3 gap-1 p-1 bg-studio-950 rounded-xl border border-studio-800">
+                  {(
+                    [
+                      { id: "standard", label: "Standard" },
+                      { id: "high", label: "High" },
+                      { id: "wav", label: "WAV" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setStudioControls((c) => ({ ...c, outputQuality: opt.id }))}
+                      className={`py-1.5 rounded-lg text-[11px] font-mono font-bold transition ${
+                        studioControls.outputQuality === opt.id
+                          ? "bg-emerald-500 text-slate-950 shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+              {/* Vocal Warmth */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-300">Vocal Warmth</span>
+                  <span className="text-amber-400 font-bold">{Math.round(studioControls.vocalWarmth * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={studioControls.vocalWarmth}
+                  onChange={(e) =>
+                    setStudioControls((c) => ({ ...c, vocalWarmth: parseFloat(e.target.value) }))
+                  }
+                  className="w-full accent-amber-500 h-1.5 bg-studio-950 rounded-lg cursor-pointer"
+                />
+              </div>
+
+              {/* Vocal Clarity */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-300">Vocal Clarity</span>
+                  <span className="text-cyan-400 font-bold">{Math.round(studioControls.vocalClarity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={studioControls.vocalClarity}
+                  onChange={(e) =>
+                    setStudioControls((c) => ({ ...c, vocalClarity: parseFloat(e.target.value) }))
+                  }
+                  className="w-full accent-cyan-400 h-1.5 bg-studio-950 rounded-lg cursor-pointer"
+                />
+              </div>
+
+              {/* Compression */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-slate-300">Compression</span>
+                  <span className="text-emerald-400 font-bold">{Math.round(studioControls.compressionAmount * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={studioControls.compressionAmount}
+                  onChange={(e) =>
+                    setStudioControls((c) => ({ ...c, compressionAmount: parseFloat(e.target.value) }))
+                  }
+                  className="w-full accent-emerald-400 h-1.5 bg-studio-950 rounded-lg cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* 4. ENHANCE MY VOICE BUTTON (ONE-CLICK PRIMARY ACTION) */}
           <div className="py-2">
             <button
@@ -1029,18 +1188,26 @@ export const StudioView: React.FC<StudioViewProps> = ({
                   >
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-bold text-emerald-400 font-mono">MP3 320 kbps</span>
+                        <span className="text-sm font-bold text-emerald-400 font-mono">
+                          {studioControls.outputQuality === "wav"
+                            ? "WAV 24-bit Lossless"
+                            : studioControls.outputQuality === "standard"
+                            ? "MP3 192 kbps (Standard)"
+                            : "MP3 320 kbps (High)"}
+                        </span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">
                           Studio Master
                         </span>
                       </div>
                       <p className="text-xs text-slate-300">
-                        High-bitrate studio MP3 master. Plays cleanly on every phone, WhatsApp, YouTube, car, and media player.
+                        {studioControls.outputQuality === "wav"
+                          ? "Uncompressed 24-bit studio WAV master for archival & post-production."
+                          : "High-compatibility studio MP3 master. Plays cleanly on every phone, WhatsApp, YouTube, and car player."}
                       </p>
                     </div>
                     <div className="px-4 py-2.5 rounded-xl bg-emerald-500 group-hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-2 shrink-0 transition shadow-lg">
                       <Download size={16} />
-                      <span>Download MP3</span>
+                      <span>Download {studioControls.outputQuality === "wav" ? "WAV" : "MP3"}</span>
                     </div>
                   </button>
                 </div>

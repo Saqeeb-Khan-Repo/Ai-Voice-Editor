@@ -80,6 +80,26 @@ class NaturalReverbStage(PipelineStage):
         ir_l = scipy.signal.lfilter(b_lp, a_lp, ir_l).astype(np.float32)
         ir_r = scipy.signal.lfilter(b_lp, a_lp, ir_r).astype(np.float32)
 
+        # Blend Studio Early Reflections (acoustic booth / treated room intimacy)
+        # 6 discrete taps between 8.5 ms and 34.1 ms with gentle L/R stereo alternation
+        er_taps_ms = [8.5, 13.2, 18.7, 23.4, 28.9, 34.1]
+        er_gains = [0.42, 0.34, 0.27, 0.21, 0.16, 0.12]
+        er_l = np.zeros_like(ir_l)
+        er_r = np.zeros_like(ir_r)
+        for idx, (tap_ms, g) in enumerate(zip(er_taps_ms, er_gains)):
+            tap_idx = int(sample_rate * (tap_ms / 1000.0))
+            if tap_idx < len(er_l):
+                if idx % 2 == 0:
+                    er_l[tap_idx] += g
+                    er_r[tap_idx] += g * 0.72
+                else:
+                    er_l[tap_idx] += g * 0.72
+                    er_r[tap_idx] += g
+
+        # Combine 35% early reflections + 65% smooth Moorer hall tail
+        ir_l = (0.35 * er_l + 0.65 * ir_l).astype(np.float32)
+        ir_r = (0.35 * er_r + 0.65 * ir_r).astype(np.float32)
+
         # 3. Blend Dry and Wet using Overlap-Add FFT Convolution
         n_sig = len(mono_input)
         if is_1d:

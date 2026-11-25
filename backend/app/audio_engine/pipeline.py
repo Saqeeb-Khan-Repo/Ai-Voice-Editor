@@ -68,51 +68,38 @@ class AudioEnhancementPipeline:
         if initial_analysis is None:
             initial_analysis = AudioAnalyzer.analyze(audio, sample_rate)
 
-        # Stage 3: High-Pass Filtering (Removes DC offset & subsonic rumble before noise estimation)
-        update_progress("filtering", 18)
-        audio, meta_hp = self.stage_hp.process(audio, sample_rate, config)
-
-        # Stage 4: Complete AI Noise Reduction (Spectral Gating + Downward Voice Expander)
-        update_progress("denoising", 28)
+        # Stage 3: Intelligent Noise Reduction (Hum + Spectral Gating + Adaptive Downward Expander)
+        update_progress("denoising", 22)
         audio, meta_nr = self.stage_nr.process(audio, sample_rate, config)
 
-        # Stage 5: Equalization (Anti-boxiness scoop, presence clarity & silky air)
-        update_progress("equalizing", 36)
+        # Stage 4: High-Pass Filtering & Corrective Equalization
+        update_progress("filtering", 32)
+        audio, meta_hp = self.stage_hp.process(audio, sample_rate, config)
+        update_progress("equalizing", 40)
         audio, meta_eq = self.stage_eq.process(audio, sample_rate, config)
 
-        # Stage 6: Auto-Tune Pitch Correction
-        update_progress("pitch_correcting", 44)
-        audio, meta_tune = self.stage_tune.process(audio, sample_rate, config)
-
-        # Stage 7: Warm Analog Tube Saturation
-        update_progress("saturating", 52)
-        audio, meta_sat = self.stage_sat.process(audio, sample_rate, config)
-
-        # Stage 8: Dynamic Compression
-        update_progress("compressing", 60)
+        # Stage 5: Vocal Compression (Transparent optical leveling)
+        update_progress("compressing", 52)
         audio, meta_comp = self.stage_comp.process(audio, sample_rate, config)
 
-        # Stage 9: De-essing
+        # Stage 6: Presence & Tonal Enhancement (Warmth, De-essing, optional Pitch/Doubler)
+        update_progress("saturating", 60)
+        audio, meta_sat = self.stage_sat.process(audio, sample_rate, config)
         update_progress("deessing", 66)
         audio, meta_deess = self.stage_deess.process(audio, sample_rate, config)
-
-        # Stage 10: Stereo Vocal Doubler / Acapella Harmony
-        update_progress("doubling", 72)
+        audio, meta_tune = self.stage_tune.process(audio, sample_rate, config)
         audio, meta_doubler = self.stage_doubler.process(audio, sample_rate, config)
 
-        # Stage 11: Natural Reverb
+        # Stage 7: Professional Studio Reverb (Early Reflections + Damped Hall Ambience)
         update_progress("reverberating", 78)
         audio, meta_rev = self.stage_reverb.process(audio, sample_rate, config)
-
-        # Stage 12: Studio Vocal Echo & Delay
-        update_progress("echoing", 84)
         audio, meta_echo = self.stage_echo.process(audio, sample_rate, config)
 
-        # Stage 13: Loudness Normalization
+        # Stage 8: Loudness Normalization (EBU R128)
         update_progress("normalizing", 90)
         audio, meta_loud = self.stage_loudness.process(audio, sample_rate, config)
 
-        # Stage 14: Lookahead True-Peak Limiting
+        # Stage 9: Lookahead True-Peak Limiting
         update_progress("limiting", 94)
         audio, meta_limit = self.stage_limiter.process(audio, sample_rate, config)
 

@@ -110,6 +110,37 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
             return out_channels[0]
         return np.column_stack(out_channels)
 
+    @staticmethod
+    def _remove_electrical_hum(signal: np.ndarray, sample_rate: int) -> np.ndarray:
+        """
+        Detects narrowband 50 Hz / 60 Hz mains electrical hum and its 2nd/3rd harmonics
+        on quiet frames, applying surgical high-Q notch filters only if hum is detected.
+        """
+        if len(signal) < 4096 or sample_rate < 8000:
+            return signal
+
+        # Use a fast PSD over up to 10 seconds to detect narrowband mains hum
+        probe_len = min(len(signal), sample_rate * 10)
+        freqs, psd = scipy.signal.welch(signal[:probe_len], fs=sample_rate, nperseg=min(8192, probe_len))
+
+        out = signal
+        for base_hum in (50.0, 60.0):
+            # Check fundamental hum vs neighboring bins (+/- 6 Hz)
+            idx_base = int(np.argmin(np.abs(freqs - base_hum)))
+            idx_lo = int(np.argmin(np.abs(freqs - (base_hum - 6.0))))
+            idx_hi = int(np.argmin(np.abs(freqs - (base_hum + 6.0))))
+            if idx_lo < idx_base < idx_hi:
+                neighbor_med = float(np.median(np.concatenate([psd[idx_lo:idx_base - 1], psd[idx_base + 2:idx_hi + 1]])))
+                hum_peak = float(np.max(psd[max(0, idx_base - 1):idx_base + 2]))
+                # Apply surgical Q=25 notch if hum exceeds neighbor floor by > 6 dB (4x power)
+                if neighbor_med > 1e-12 and (hum_peak / neighbor_med) > 4.0:
+                    for harmonic in (1, 2, 3):
+                        f_notch = base_hum * harmonic
+                        if f_notch < sample_rate * 0.45:
+                            b_n, a_n = scipy.signal.iirnotch(f_notch, Q=25.0, fs=sample_rate)
+                            out = scipy.signal.lfilter(b_n, a_n, out).astype(np.float32)
+        return out
+
     def _process_single_channel(
         self,
         signal: np.ndarray,
@@ -117,6 +148,9 @@ class SpectralGatingAdapter(NoiseReducerAdapter):
         strength: float,
         mode: str
     ) -> np.ndarray:
+        # 0. Surgical 50/60 Hz electrical hum removal (only if hum is actually detected)
+        signal = self._remove_electrical_hum(signal, sample_rate)
+
         # STFT configuration optimized for human speech & vocal timbre
         n_fft = 2048
         hop_length = n_fft // 4

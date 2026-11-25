@@ -26,6 +26,12 @@ class ProcessingParametersOverride(BaseModel):
     target_lufs: Optional[float] = Field(None, ge=-30.0, le=-6.0)
     true_peak_ceiling: Optional[float] = Field(None, ge=-6.0, le=-0.1)
     output_format: Optional[str] = Field("wav", pattern="^(wav|mp3|flac)$")
+    # Clean Studio Controls
+    noise_reduction_level: Optional[str] = Field(None, pattern="^(low|medium|high)$")
+    reverb_level: Optional[str] = Field(None, pattern="^(low|medium|high)$")
+    vocal_warmth: Optional[float] = Field(None, ge=0.0, le=1.0)
+    vocal_clarity: Optional[float] = Field(None, ge=0.0, le=1.0)
+    compression_amount: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 class ProcessingRequest(BaseModel):
     preset: str = Field(

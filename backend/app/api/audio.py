@@ -178,16 +178,25 @@ def stream_sample_directly(sample_key: str):
         raise HTTPException(status_code=404, detail="Sample file not found")
     return FileResponse(sample_src, media_type="audio/wav", filename=sample_meta["file"])
 
+from app.schemas.processing import ProcessingParametersOverride
+
+# Shared singleton pipeline instance (avoids re-initializing DSP stages per request)
+_shared_direct_pipeline = AudioEnhancementPipeline(preferred_nr_backend=settings.ACTIVE_NOISE_REDUCER)
+
 @router.post("/enhance-direct")
 def enhance_audio_direct(
     file: UploadFile = File(...),
     preset: str = Form("studio_naat"),
+    noise_reduction_level: str = Form("medium"),
+    reverb_level: str = Form("medium"),
+    vocal_warmth: float = Form(0.5),
+    vocal_clarity: float = Form(0.6),
+    compression_amount: float = Form(0.45),
+    output_quality: str = Form("high"),
 ):
     """
     Stateless one-shot enhancement endpoint for serverless / chunked SaaS workflow.
-    Receives an audio chunk (WAV/MP3/FLAC/OGG), runs the full 16-stage studio DSP pipeline
-    in memory, and returns the enhanced 16-bit PCM WAV bytes directly.
-    Zero /tmp or SQLite state dependency across containers.
+    Reuses a shared DSP pipeline instance and returns enhanced audio directly in memory.
     """
     contents = file.file.read()
     if not contents or len(contents) < 64:
@@ -203,15 +212,21 @@ def enhance_audio_direct(
         raise HTTPException(status_code=400, detail="Audio chunk is too short.")
 
     analysis = AudioAnalyzer.analyze(audio_data, sample_rate)
+    overrides = ProcessingParametersOverride(
+        noise_reduction_level=noise_reduction_level if noise_reduction_level in ("low", "medium", "high") else "medium",
+        reverb_level=reverb_level if reverb_level in ("low", "medium", "high") else "medium",
+        vocal_warmth=max(0.0, min(1.0, float(vocal_warmth))),
+        vocal_clarity=max(0.0, min(1.0, float(vocal_clarity))),
+        compression_amount=max(0.0, min(1.0, float(compression_amount))),
+    )
     config, _ = EnhancementDecisionEngine.decide(
         analysis=analysis,
         preset=preset,
         automatic_mode=True,
-        overrides=None
+        overrides=overrides
     )
 
-    pipeline = AudioEnhancementPipeline(preferred_nr_backend=settings.ACTIVE_NOISE_REDUCER)
-    enhanced_audio, result = pipeline.process_array(
+    enhanced_audio, result = _shared_direct_pipeline.process_array(
         audio=audio_data,
         sample_rate=sample_rate,
         config=config,
@@ -219,13 +234,20 @@ def enhance_audio_direct(
     )
 
     out_buf = io.BytesIO()
-    sf.write(out_buf, enhanced_audio, sample_rate, format="MP3", subtype="MPEG_LAYER_III", compression_level=0.0)
+    if output_quality == "wav" and len(enhanced_audio) <= sample_rate * 20:
+        sf.write(out_buf, enhanced_audio, sample_rate, subtype="PCM_24", format="WAV")
+        media_type = "audio/wav"
+        filename = "enhanced_chunk.wav"
+    else:
+        sf.write(out_buf, enhanced_audio, sample_rate, format="MP3", subtype="MPEG_LAYER_III", compression_level=0.0)
+        media_type = "audio/mpeg"
+        filename = "enhanced_chunk.mp3"
     out_buf.seek(0)
 
     comp_report = result.get("comparison_report", {})
     proc_an = result.get("processed_analysis", {})
     headers = {
-        "Content-Disposition": 'attachment; filename="enhanced_chunk.mp3"',
+        "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Noise-Floor-Before": str(analysis.get("noise_floor_dbfs", -40.0)),
         "X-Noise-Floor-After": str(proc_an.get("noise_floor_dbfs", -80.0)),
         "X-LUFS-After": str(proc_an.get("integrated_lufs", -16.0)),
@@ -234,7 +256,7 @@ def enhance_audio_direct(
         "Access-Control-Expose-Headers": "X-Noise-Floor-Before, X-Noise-Floor-After, X-LUFS-After, X-True-Peak-After, X-SNR-Improvement",
     }
 
-    return StreamingResponse(out_buf, media_type="audio/mpeg", headers=headers)
+    return StreamingResponse(out_buf, media_type=media_type, headers=headers)
 
 @router.post("/load-sample/{sample_key}", response_model=AudioUploadResponse)
 def load_specific_sample_audio(sample_key: str, db: Session = Depends(get_db)):

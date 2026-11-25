@@ -60,9 +60,9 @@ class EnhancementDecisionEngine:
                 "autotune_strength": 0.0,
                 "autotune_scale": "chromatic",
                 "tube_enabled": True,
-                "tube_warmth": 0.18,
-                "doubler_enabled": True,
-                "doubler_mix": 0.06,
+                "tube_warmth": 0.22,
+                "doubler_enabled": False,  # Pure condenser-mic clarity without phasey chorus
+                "doubler_mix": 0.0,
                 "doubler_width": 0.75,
                 "target_lufs": -16.0,  # Broadcast / Podcast studio loudness without pumping
                 "comp_ratio": 2.3,     # Transparent optical vocal leveling
@@ -373,6 +373,45 @@ class EnhancementDecisionEngine:
                 loudness_decision = f"User override applied: Loudness target = {target_lufs:.1f} LUFS."
             if overrides.true_peak_ceiling is not None:
                 true_peak_ceiling = overrides.true_peak_ceiling
+
+            # Clean Studio Controls mapping
+            if overrides.noise_reduction_level is not None:
+                lvl = overrides.noise_reduction_level.lower()
+                nr_enabled = True
+                if lvl == "low":
+                    nr_strength, nr_mode = 0.35, "subtle"
+                elif lvl == "high":
+                    nr_strength, nr_mode = 0.85, "aggressive"
+                else:
+                    nr_strength, nr_mode = 0.65, "balanced"
+                nr_decision = f"Studio Noise Reduction set to {lvl.capitalize()} ({nr_mode}, {int(nr_strength*100)}%)."
+
+            if overrides.reverb_level is not None:
+                rlvl = overrides.reverb_level.lower()
+                if rlvl == "low":
+                    reverb_wet, reverb_decay = 0.06, 1.0
+                elif rlvl == "high":
+                    reverb_wet, reverb_decay = 0.22, 2.0
+                else:
+                    reverb_wet, reverb_decay = 0.13, 1.4
+                reverb_decision = f"Studio Reverb set to {rlvl.capitalize()} (wet={int(reverb_wet*100)}%, decay={reverb_decay}s)."
+
+            if overrides.vocal_warmth is not None:
+                w = float(overrides.vocal_warmth)
+                tube_warmth = w * 0.45
+                tube_enabled = tube_warmth > 0.02
+                saturation_decision = f"Vocal Warmth set to {int(w*100)}%."
+
+            if overrides.vocal_clarity is not None:
+                c = float(overrides.vocal_clarity)
+                eq_presence_gain_db = 0.5 + (c * 3.5)
+                eq_air_gain_db = 0.5 + (c * 3.5)
+                eq_decision = f"Vocal Clarity set to {int(c*100)}% (+{eq_presence_gain_db:.1f} dB presence, +{eq_air_gain_db:.1f} dB air)."
+
+            if overrides.compression_amount is not None:
+                ca = float(overrides.compression_amount)
+                comp_ratio = 1.2 + (ca * 2.6)
+                comp_decision = f"Vocal Compression set to {int(ca*100)}% ({comp_ratio:.2f}:1)."
 
         config = {
             "preset": active_preset,
