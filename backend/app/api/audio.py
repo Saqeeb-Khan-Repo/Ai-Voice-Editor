@@ -1,9 +1,10 @@
 import os
+import io
 import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 import soundfile as sf
 import numpy as np
@@ -13,6 +14,8 @@ from app.database.session import get_db
 from app.models.audio_file import AudioFile
 from app.schemas.audio import AudioUploadResponse, AudioFileMetadata, AudioAnalysisReport, AudioEditRequest
 from app.audio_engine.analyzer import AudioAnalyzer
+from app.audio_engine.decision_engine import EnhancementDecisionEngine
+from app.audio_engine.pipeline import AudioEnhancementPipeline
 
 router = APIRouter(prefix="/audio", tags=["Audio"])
 
@@ -161,6 +164,77 @@ def list_available_samples():
         }
         for k, v in SAMPLE_LIBRARY.items()
     ]
+
+@router.get("/samples/{sample_key}/stream")
+def stream_sample_directly(sample_key: str):
+    """Streams a bundled sample directly from read-only deployment assets (stateless)."""
+    if sample_key not in SAMPLE_LIBRARY:
+        sample_key = "hijaz"
+    sample_meta = SAMPLE_LIBRARY[sample_key]
+    sample_src = os.path.join(settings.SAMPLES_DIR, sample_meta["file"])
+    if not os.path.exists(sample_src):
+        sample_src = os.path.join(settings.STORAGE_DIR, "samples", sample_meta["file"])
+    if not os.path.exists(sample_src):
+        raise HTTPException(status_code=404, detail="Sample file not found")
+    return FileResponse(sample_src, media_type="audio/wav", filename=sample_meta["file"])
+
+@router.post("/enhance-direct")
+def enhance_audio_direct(
+    file: UploadFile = File(...),
+    preset: str = Form("studio_naat"),
+):
+    """
+    Stateless one-shot enhancement endpoint for serverless / chunked SaaS workflow.
+    Receives an audio chunk (WAV/MP3/FLAC/OGG), runs the full 16-stage studio DSP pipeline
+    in memory, and returns the enhanced 16-bit PCM WAV bytes directly.
+    Zero /tmp or SQLite state dependency across containers.
+    """
+    contents = file.file.read()
+    if not contents or len(contents) < 64:
+        raise HTTPException(status_code=400, detail="Empty or invalid audio chunk.")
+
+    try:
+        audio_data, sample_rate = sf.read(io.BytesIO(contents), dtype="float32", always_2d=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not decode audio chunk: {str(e)}")
+
+    duration = float(len(audio_data) / sample_rate) if sample_rate > 0 else 0.0
+    if duration < 0.05:
+        raise HTTPException(status_code=400, detail="Audio chunk is too short.")
+
+    analysis = AudioAnalyzer.analyze(audio_data, sample_rate)
+    config, _ = EnhancementDecisionEngine.decide(
+        analysis=analysis,
+        preset=preset,
+        automatic_mode=True,
+        overrides=None
+    )
+
+    pipeline = AudioEnhancementPipeline(preferred_nr_backend=settings.ACTIVE_NOISE_REDUCER)
+    enhanced_audio, result = pipeline.process_array(
+        audio=audio_data,
+        sample_rate=sample_rate,
+        config=config,
+        initial_analysis=analysis
+    )
+
+    out_buf = io.BytesIO()
+    sf.write(out_buf, enhanced_audio, sample_rate, subtype="PCM_16", format="WAV")
+    out_buf.seek(0)
+
+    comp_report = result.get("comparison_report", {})
+    proc_an = result.get("processed_analysis", {})
+    headers = {
+        "Content-Disposition": 'attachment; filename="enhanced_chunk.wav"',
+        "X-Noise-Floor-Before": str(analysis.get("noise_floor_dbfs", -40.0)),
+        "X-Noise-Floor-After": str(proc_an.get("noise_floor_dbfs", -80.0)),
+        "X-LUFS-After": str(proc_an.get("integrated_lufs", -16.0)),
+        "X-True-Peak-After": str(proc_an.get("true_peak_dbtp", -1.0)),
+        "X-SNR-Improvement": str(comp_report.get("snr_improvement_db", 0.0)),
+        "Access-Control-Expose-Headers": "X-Noise-Floor-Before, X-Noise-Floor-After, X-LUFS-After, X-True-Peak-After, X-SNR-Improvement",
+    }
+
+    return StreamingResponse(out_buf, media_type="audio/wav", headers=headers)
 
 @router.post("/load-sample/{sample_key}", response_model=AudioUploadResponse)
 def load_specific_sample_audio(sample_key: str, db: Session = Depends(get_db)):
